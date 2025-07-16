@@ -7,7 +7,6 @@ import os
 import random
 from ollama import Client
 
-
 # Create logs directory if it doesn't exist
 os.makedirs("logs", exist_ok=True)
 
@@ -17,7 +16,7 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# Enable CORS (optional, for frontend integration)
+# Enable CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -32,17 +31,19 @@ class PromptRequest(BaseModel):
 class GenerateResponse(BaseModel):
     response: str
 
+# Ollama client
 ollama_client = Client(host='http://localhost:11434')
 
-
-def log_interaction(prompt: str, response: str):
+# ✅ Updated to accept model
+def log_interaction(prompt: str, response: str, model: str = "stubbed"):
     """Log the prompt/response interaction to logs/log.jsonl"""
     log_entry = {
         "timestamp": datetime.now().isoformat(),
+        "model": model,
         "prompt": prompt,
         "response": response
     }
-    
+
     try:
         with open("logs/log.jsonl", "a", encoding="utf-8") as f:
             f.write(json.dumps(log_entry, ensure_ascii=False) + "\n")
@@ -51,39 +52,34 @@ def log_interaction(prompt: str, response: str):
 
 def generate_stubbed_response(prompt: str) -> str:
     """Generate a stubbed response based on the prompt"""
-    
-    # Different response templates based on prompt content
     if "code" in prompt.lower() or "programming" in prompt.lower():
         responses = [
-            f"Here's a code example for '{prompt}':\n\n```python\nprint('Hello, World!')\n```\n\nThis demonstrates basic programming concepts.",
-            f"For coding questions like '{prompt}', I'd recommend starting with fundamentals and building complexity gradually.",
+            f"Here's a code example for '{prompt}':\n\n```python\nprint('Hello, World!')\n```",
+            f"For coding questions like '{prompt}', start with the basics and build up gradually.",
         ]
     elif "explain" in prompt.lower() or "what is" in prompt.lower():
         responses = [
-            f"Let me explain '{prompt}' in simple terms:\n\nThis concept involves several key components working together.",
-            f"'{prompt}' can be understood by breaking it down into smaller, manageable parts.",
+            f"Let me explain '{prompt}' in simple terms...",
+            f"'{prompt}' can be broken down into simpler parts to understand easily.",
         ]
     elif "help" in prompt.lower() or "how to" in prompt.lower():
         responses = [
-            f"I'd be happy to help with '{prompt}'. Here are some steps you can follow:",
-            f"For '{prompt}', I recommend taking a systematic approach.",
+            f"Here are some steps for '{prompt}':",
+            f"I recommend this approach for '{prompt}':",
         ]
     else:
         responses = [
-            f"Thank you for your prompt: '{prompt}'. This is a simulated response from MiniVault API.",
-            f"Based on your input '{prompt}', here's a thoughtful response from our local model.",
-            f"Your prompt '{prompt}' is interesting. Let me share some insights on this topic.",
-            f"Processing your request about '{prompt}'. Here's what I can tell you...",
+            f"Thank you for your prompt: '{prompt}'. This is a simulated response.",
+            f"Your input '{prompt}' is interesting. Here's what I can say about it:",
         ]
-    
+
     base_response = random.choice(responses)
-    
-    # Add some context
+
     elaboration = f"""
 
 This response demonstrates MiniVault API capabilities:
 • Local prompt processing
-• Contextual response generation  
+• Contextual response generation
 • Interaction logging to logs/log.jsonl
 • RESTful API design with FastAPI
 
@@ -92,12 +88,13 @@ In production, this could be powered by:
 • Ollama with Llama models
 • Custom fine-tuned models
 
-The system maintains full offline capability."""
-    
+The system maintains full offline capability.
+"""
+
     return base_response + elaboration
 
 def generate_llama_response(prompt: str) -> str:
-    """Call Ollama client to generate a response using phi3:mini model with a system prompt"""
+    """Call Ollama client to generate a response using phi3:mini model"""
     try:
         system_prompt = "You are a helpful AI assistant called MiniVault, designed to give clear and concise answers."
 
@@ -112,51 +109,36 @@ def generate_llama_response(prompt: str) -> str:
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Ollama generation failed: {str(e)}")
 
-
 @app.get("/")
 async def root():
-    """Root endpoint"""
     return {
         "message": "MiniVault API is running!",
         "version": "1.0.0",
         "endpoints": {
-            "generate": "POST /generate - Generate response for prompt",
+            "generate": "POST /generate - Generate stubbed response for prompt",
+            "generate-llama": "POST /generate-llama - Generate response using Ollama",
             "health": "GET /health - Check API health"
         }
     }
 
 @app.post("/generate", response_model=GenerateResponse)
 async def generate(request: PromptRequest):
-    """Generate a response for the given prompt"""
+    """Generate a response for the given prompt using stubbed logic"""
     try:
-        # Validate prompt
         if not request.prompt or not request.prompt.strip():
             raise HTTPException(status_code=400, detail="Prompt cannot be empty")
-        
+
         if len(request.prompt) > 5000:
             raise HTTPException(status_code=400, detail="Prompt too long (max 5000 characters)")
-        
-        # Generate response (stubbed)
+
         response = generate_stubbed_response(request.prompt.strip())
-        
-        # Log the interaction
-        log_interaction(request.prompt.strip(), response)
-        
+        log_interaction(request.prompt.strip(), response, model="stubbed")
         return GenerateResponse(response=response)
-    
+
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error generating response: {str(e)}")
-
-@app.get("/health")
-async def health_check():
-    """Health check endpoint"""
-    return {
-        "status": "healthy",
-        "timestamp": datetime.now().isoformat()
-    }
-
 
 @app.post("/generate-llama", response_model=GenerateResponse)
 async def generate_llama(request: PromptRequest):
@@ -164,6 +146,7 @@ async def generate_llama(request: PromptRequest):
     try:
         if not request.prompt or not request.prompt.strip():
             raise HTTPException(status_code=400, detail="Prompt cannot be empty")
+
         if len(request.prompt) > 5000:
             raise HTTPException(status_code=400, detail="Prompt too long (max 5000 characters)")
 
@@ -176,8 +159,15 @@ async def generate_llama(request: PromptRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error with phi3:mini generation: {str(e)}")
 
+@app.get("/health")
+async def health_check():
+    """Health check endpoint"""
+    return {
+        "status": "healthy",
+        "timestamp": datetime.now().isoformat()
+    }
 
-
+# Run with: uvicorn main:app --reload
 if __name__ == "__main__":
     import uvicorn
     print("🚀 Starting MiniVault API...")
